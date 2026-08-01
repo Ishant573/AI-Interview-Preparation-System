@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+
+{% block title %}Performance Analytics - Track Your Progress{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="text-center py-4">
+        <h2 class="fw-bold">
+            <i class="fas fa-chart-line text-primary me-2"></i>
+            Performance Analytics
+        </h2>
+        <p class="text-muted">Track your interview performance and improvement over time</p>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-3">Loading analytics data...</p>
+    </div>
+
+    <!-- Analytics Content -->
+    <div id="analyticsContent" class="d-none">
+        <!-- Summary Cards -->
+        <div class="row g-4 mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card border-0 shadow-sm text-center p-3">
+                    <div class="stat-icon mb-2">
+                        <i class="fas fa-calendar-check fa-2x text-primary"></i>
+                    </div>
+                    <div class="stat-value" id="totalSessions">0</div>
+                    <div class="stat-label">Total Sessions</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card border-0 shadow-sm text-center p-3">
+                    <div class="stat-icon mb-2">
+                        <i class="fas fa-check-circle fa-2x text-success"></i>
+                    </div>
+                    <div class="stat-value" id="completedSessions">0</div>
+                    <div class="stat-label">Completed</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card border-0 shadow-sm text-center p-3">
+                    <div class="stat-icon mb-2">
+                        <i class="fas fa-trophy fa-2x text-warning"></i>
+                    </div>
+                    <div class="stat-value" id="avgScore">0</div>
+                    <div class="stat-label">Average Score</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card border-0 shadow-sm text-center p-3">
+                    <div class="stat-icon mb-2">
+                        <i class="fas fa-chart-line fa-2x text-info"></i>
+                    </div>
+                    <div class="stat-value" id="trendIndicator">-</div>
+                    <div class="stat-label">Trend</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row g-4 mb-4">
+            <div class="col-lg-6">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5 class="fw-bold mb-3">
+                            <i class="fas fa-wave-square me-2"></i>Score Progression
+                        </h5>
+                        <canvas id="scoreTrendChart" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5 class="fw-bold mb-3">
+                            <i class="fas fa-chart-bar me-2"></i>Category Performance
+                        </h5>
+                        <canvas id="categoryChart" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Session History -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-history me-2"></i>Session History
+                </h5>
+            </div>
+            <div class="card-body" id="sessionHistory">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+
+        <!-- Action -->
+        <div class="text-center mb-5">
+            <a href="/interview" class="btn btn-primary btn-lg">
+                <i class="fas fa-play me-2"></i>Start New Interview
+            </a>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="d-none text-center py-5">
+        <i class="fas fa-chart-line fa-4x text-muted mb-3"></i>
+        <h4>No Analytics Data Yet</h4>
+        <p class="text-muted">Complete an interview to see your performance analytics.</p>
+        <a href="/interview" class="btn btn-primary btn-lg">
+            <i class="fas fa-play me-2"></i>Start Interview
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadAnalytics();
+});
+
+function loadAnalytics() {
+    fetch('/api/get-analytics')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.completed_sessions > 0) {
+                displayAnalytics(data);
+            } else if (data.success) {
+                document.getElementById('loadingState').classList.add('d-none');
+                document.getElementById('emptyState').classList.remove('d-none');
+            } else {
+                document.getElementById('loadingState').classList.add('d-none');
+                document.getElementById('emptyState').classList.remove('d-none');
+            }
+        })
+        .catch(error => {
+            document.getElementById('loadingState').classList.add('d-none');
+            document.getElementById('emptyState').classList.remove('d-none');
+        });
+}
+
+function displayAnalytics(data) {
+    document.getElementById('loadingState').classList.add('d-none');
+    document.getElementById('analyticsContent').classList.remove('d-none');
+    
+    // Summary stats
+    document.getElementById('totalSessions').textContent = data.total_sessions;
+    document.getElementById('completedSessions').textContent = data.completed_sessions;
+    document.getElementById('avgScore').textContent = 
+        data.averages.overall_score ? data.averages.overall_score.toFixed(1) : 'N/A';
+    
+    // Trend
+    const trend = data.trend.trend;
+    const trendEl = document.getElementById('trendIndicator');
+    if (trend === 'improving') {
+        trendEl.textContent = '📈 Improving';
+        trendEl.style.color = '#28a745';
+    } else if (trend === 'declining') {
+        trendEl.textContent = '📉 Declining';
+        trendEl.style.color = '#dc3545';
+    } else if (trend === 'stable') {
+        trendEl.textContent = '➡️ Stable';
+        trendEl.style.color = '#ffc107';
+    } else {
+        trendEl.textContent = 'Insufficient Data';
+        trendEl.style.color = '#6c757d';
+    }
+    
+    // Score trend chart
+    createTrendChart(data.trend);
+    
+    // Category chart
+    createCategoryChart(data.analytics);
+    
+    // Session history
+    displaySessionHistory(data.sessions);
+}
+
+function createTrendChart(trendData) {
+    const ctx = document.getElementById('scoreTrendChart').getContext('2d');
+    
+    const labels = trendData.sessions.map((s, i) => `Session ${i + 1}`);
+    const scores = trendData.scores;
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Overall Score',
+                data: scores,
+                borderColor: 'rgba(54, 162, 235, 1)',
+                backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                pointRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: 'Score' }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+function createCategoryChart(analyticsData) {
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    
+    // Aggregate scores from all analytics
+    let totalComm = 0, totalTech = 0, totalConf = 0, totalRel = 0;
+    let count = 0;
+    
+    analyticsData.forEach(a => {
+        totalComm += a.avg_communication_score || 0;
+        totalTech += a.avg_technical_score || 0;
+        totalConf += a.avg_confidence_score || 0;
+        totalRel += a.avg_relevance_score || 0;
+        count++;
+    });
+    
+    const avg = (val) => count > 0 ? (val / count) : 0;
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Communication', 'Technical', 'Confidence', 'Relevance'],
+            datasets: [{
+                label: 'Average Score',
+                data: [
+                    avg(totalComm),
+                    avg(totalTech),
+                    avg(totalConf),
+                    avg(totalRel)
+                ],
+                backgroundColor: [
+                    'rgba(54, 162, 235, 0.7)',
+                    'rgba(255, 99, 132, 0.7)',
+                    'rgba(255, 206, 86, 0.7)',
+                    'rgba(75, 192, 192, 0.7)'
+                ],
+                borderColor: [
+                    'rgba(54, 162, 235, 1)',
+                    'rgba(255, 99, 132, 1)',
+                    'rgba(255, 206, 86, 1)',
+                    'rgba(75, 192, 192, 1)'
+                ],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 10,
+                    title: { display: true, text: 'Score (out of 10)' }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+function displaySessionHistory(sessions) {
+    const container = document.getElementById('sessionHistory');
+    container.innerHTML = '<div class="table-responsive"><table class="table table-hover">' +
+        '<thead><tr><th>#</th><th>Date</th><th>Role</th><th>Questions</th><th>Score</th><th>Grade</th><th>Status</th></tr></thead>' +
+        '<tbody id="historyTableBody"></tbody></table></div>';
+    
+    const tbody = document.getElementById('historyTableBody');
+    
+    sessions.forEach((session, index) => {
+        const tr = document.createElement('tr');
+        const date = new Date(session.created_at).toLocaleDateString('en-US', {
+            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+        
+        tr.innerHTML = `
+            <td>${index + 1}</td>
+            <td>${date}</td>
+            <td>${session.job_role || 'General'}</td>
+            <td>${session.questions_answered || 0}/${session.total_questions || 0}</td>
+            <td class="fw-bold">${session.overall_score ? session.overall_score.toFixed(1) : 'N/A'}</td>
+            <td><span class="badge ${session.overall_score >= 80 ? 'bg-success' : session.overall_score >= 60 ? 'bg-warning' : 'bg-danger'}">${session.grade || 'N/A'}</span></td>
+            <td><span class="badge ${session.status === 'completed' ? 'bg-success' : 'bg-info'}">${session.status}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+</script>
+{% endblock %}

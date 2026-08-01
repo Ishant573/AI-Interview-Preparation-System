@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}AI Interview Preparation - Home{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Hero Section -->
+    <div class="hero-section text-center py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="hero-icon mb-4">
+                    <i class="fas fa-robot fa-4x text-primary"></i>
+                </div>
+                <h1 class="display-4 fw-bold mb-3">
+                    Ace Your Next Interview with AI
+                </h1>
+                <p class="lead text-muted mb-4">
+                    Upload your resume, practice with AI-powered interview questions, 
+                    and get instant feedback on your communication skills.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- How It Works -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-4">
+            <div class="card feature-card h-100 border-0 shadow-sm">
+                <div class="card-body text-center p-4">
+                    <div class="feature-icon mb-3">
+                        <i class="fas fa-file-upload fa-3x text-primary"></i>
+                    </div>
+                    <h5 class="card-title fw-bold">1. Upload Resume</h5>
+                    <p class="card-text text-muted">
+                        Upload your resume (PDF, DOCX, or TXT) and our AI will analyze your skills, 
+                        experience, and qualifications.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card feature-card h-100 border-0 shadow-sm">
+                <div class="card-body text-center p-4">
+                    <div class="feature-icon mb-3">
+                        <i class="fas fa-comments fa-3x text-success"></i>
+                    </div>
+                    <h5 class="card-title fw-bold">2. Practice Interview</h5>
+                    <p class="card-text text-muted">
+                        Answer AI-generated questions tailored to your profile. Use voice or text 
+                        to respond in real-time.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card feature-card h-100 border-0 shadow-sm">
+                <div class="card-body text-center p-4">
+                    <div class="feature-icon mb-3">
+                        <i class="fas fa-chart-line fa-3x text-warning"></i>
+                    </div>
+                    <h5 class="card-title fw-bold">3. Get Feedback</h5>
+                    <p class="card-text text-muted">
+                        Receive detailed scores on communication, technical accuracy, confidence, 
+                        and relevance with actionable suggestions.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resume Upload Section -->
+    <div class="row justify-content-center mb-5">
+        <div class="col-lg-8">
+            <div class="card upload-card border-0 shadow-lg">
+                <div class="card-body p-5">
+                    <h3 class="card-title text-center mb-4 fw-bold">
+                        <i class="fas fa-cloud-upload-alt me-2"></i>
+                        Upload Your Resume
+                    </h3>
+                    
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-zone-content text-center">
+                            <i class="fas fa-file-pdf fa-4x text-danger mb-3"></i>
+                            <h5>Drag & Drop your resume here</h5>
+                            <p class="text-muted">or</p>
+                            <button class="btn btn-primary btn-lg" onclick="document.getElementById('resumeInput').click()">
+                                <i class="fas fa-search me-2"></i>Browse Files
+                            </button>
+                            <input type="file" id="resumeInput" accept=".pdf,.docx,.txt" style="display:none">
+                            <p class="mt-3 text-muted small">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Supported formats: PDF, DOCX, TXT (Max 16MB)
+                            </p>
+                        </div>
+                        <div class="upload-progress d-none">
+                            <div class="progress mb-3">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <p class="text-center mb-0" id="uploadStatus">Analyzing your resume...</p>
+                        </div>
+                    </div>
+
+                    <!-- Resume Analysis Results -->
+                    <div id="resumeResults" class="d-none mt-4">
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i>
+                            <span id="successMessage">Resume analyzed successfully!</span>
+                        </div>
+                        
+                        <div class="row mt-4">
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6 class="fw-bold"><i class="fas fa-code me-2"></i>Skills Found</h6>
+                                        <div id="skillsList" class="skills-container"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6 class="fw-bold"><i class="fas fa-briefcase me-2"></i>Suggested Roles</h6>
+                                        <div id="suggestedRoles" class="roles-container"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 text-center">
+                            <label for="jobRoleInput" class="form-label fw-bold">
+                                <i class="fas fa-bullseye me-1"></i> Target Job Role (Optional)
+                            </label>
+                            <input type="text" class="form-control text-center mb-3" id="jobRoleInput" 
+                                   placeholder="e.g., Senior Software Engineer">
+                            <button class="btn btn-success btn-lg" id="startInterviewBtn" onclick="startInterview()">
+                                <i class="fas fa-play me-2"></i>Start Interview Practice
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadZone = document.getElementById('uploadZone');
+    const resumeInput = document.getElementById('resumeInput');
+    
+    // Drag and drop handlers
+    uploadZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.classList.add('drag-over');
+    });
+    
+    uploadZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        this.classList.remove('drag-over');
+    });
+    
+    uploadZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileUpload(files[0]);
+        }
+    });
+    
+    resumeInput.addEventListener('change', function(e) {
+        if (this.files.length > 0) {
+            handleFileUpload(this.files[0]);
+        }
+    });
+});
+
+function handleFileUpload(file) {
+    const formData = new FormData();
+    formData.append('resume', file);
+    
+    // Show progress
+    showUploadProgress();
+    
+    fetch('/api/upload-resume', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showResumeResults(data.profile);
+        } else {
+            showUploadError(data.error || 'Failed to analyze resume');
+        }
+    })
+    .catch(error => {
+        showUploadError('Network error: ' + error.message);
+    });
+}
+
+function showUploadProgress() {
+    document.querySelector('.upload-zone-content').classList.add('d-none');
+    document.querySelector('.upload-progress').classList.remove('d-none');
+    
+    let progress = 0;
+    const progressBar = document.querySelector('.upload-progress .progress-bar');
+    const interval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress > 90) progress = 90;
+        progressBar.style.width = progress + '%';
+    }, 500);
+    
+    // Store interval to clear later
+    window._uploadProgressInterval = interval;
+}
+
+function showUploadError(message) {
+    clearInterval(window._uploadProgressInterval);
+    document.querySelector('.upload-zone-content').classList.remove('d-none');
+    document.querySelector('.upload-progress').classList.add('d-none');
+    alert('Error: ' + message);
+}
+
+function showResumeResults(profile) {
+    clearInterval(window._uploadProgressInterval);
+    document.querySelector('.upload-progress').classList.add('d-none');
+    document.getElementById('uploadZone').classList.add('d-none');
+    document.getElementById('resumeResults').classList.remove('d-none');
+    
+    // Display skills
+    const skillsContainer = document.getElementById('skillsList');
+    skillsContainer.innerHTML = '';
+    (profile.skills || []).forEach(skill => {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-primary me-2 mb-2';
+        badge.textContent = skill;
+        skillsContainer.appendChild(badge);
+    });
+    
+    // Display suggested roles
+    const rolesContainer = document.getElementById('suggestedRoles');
+    rolesContainer.innerHTML = '';
+    (profile.suggested_titles || []).forEach(role => {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-success me-2 mb-2';
+        badge.textContent = role;
+        rolesContainer.appendChild(badge);
+    });
+    
+    // Store profile in session for later use
+    sessionStorage.setItem('resumeProfile', JSON.stringify(profile));
+}
+
+function startInterview() {
+    const jobRole = document.getElementById('jobRoleInput').value;
+    sessionStorage.setItem('jobRole', jobRole);
+    window.location.href = '/interview';
+}
+</script>
+{% endblock %}

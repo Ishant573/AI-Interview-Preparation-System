@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+
+{% block title %}AI Interview - Practice Session{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Interview Header -->
+    <div class="interview-header text-center py-4">
+        <h2 class="fw-bold">
+            <i class="fas fa-microphone-alt text-primary me-2"></i>
+            AI Interview Session
+        </h2>
+        <div class="progress mt-3" style="height: 8px;">
+            <div id="interviewProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                 role="progressbar" style="width: 0%"></div>
+        </div>
+        <p class="text-muted mt-2">
+            Question <span id="currentQuestionNum">1</span> of <span id="totalQuestions">10</span>
+        </p>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <!-- Question Card -->
+            <div class="card shadow-sm mb-4" id="questionCard">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span id="questionType" class="badge bg-info">Technical</span>
+                        <span id="questionDifficulty" class="badge bg-warning">Medium</span>
+                    </div>
+                    <h4 id="questionText" class="card-title mb-3">
+                        Loading question...
+                    </h4>
+                    <p id="questionHint" class="text-muted small">
+                        <i class="fas fa-lightbulb me-1"></i>
+                        <span>Hint will appear here</span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Answer Section -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">
+                        <i class="fas fa-edit me-2"></i>Your Answer
+                    </h5>
+                    
+                    <!-- Input Mode Toggle -->
+                    <div class="btn-group mb-3" role="group">
+                        <button type="button" class="btn btn-outline-primary active" id="textModeBtn" onclick="switchMode('text')">
+                            <i class="fas fa-keyboard me-1"></i> Text
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" id="voiceModeBtn" onclick="switchMode('voice')">
+                            <i class="fas fa-microphone me-1"></i> Voice
+                        </button>
+                    </div>
+
+                    <!-- Text Input -->
+                    <div id="textInputSection">
+                        <textarea class="form-control" id="answerText" rows="6" 
+                                  placeholder="Type your answer here... (min 10 words)"></textarea>
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                <span id="wordCount">0</span> words
+                            </small>
+                            <button class="btn btn-primary" onclick="submitTextAnswer()" id="submitBtn">
+                                <i class="fas fa-paper-plane me-1"></i> Submit Answer
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Voice Input -->
+                    <div id="voiceInputSection" class="d-none">
+                        <div class="voice-recorder text-center py-4">
+                            <div class="voice-status mb-3" id="voiceStatus">
+                                <i class="fas fa-microphone fa-3x text-muted"></i>
+                                <p class="mt-2">Click to start recording</p>
+                            </div>
+                            <button class="btn btn-danger btn-lg rounded-circle" id="recordBtn" onclick="toggleRecording()">
+                                <i class="fas fa-microphone"></i>
+                            </button>
+                            <div class="mt-3">
+                                <div id="recordingTimer" class="d-none">
+                                    <i class="fas fa-clock me-1"></i>
+                                    <span id="timerDisplay">00:00</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="voiceTranscript" class="d-none">
+                            <label class="fw-bold">Transcript:</label>
+                            <p id="transcriptText" class="bg-light p-3 rounded"></p>
+                            <button class="btn btn-primary" onclick="submitVoiceAnswer()">
+                                <i class="fas fa-paper-plane me-1"></i> Submit Answer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Feedback (shown after submission) -->
+            <div id="feedbackSection" class="d-none">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Instant Feedback</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-6 col-md-3">
+                                <div class="score-card text-center p-3 bg-light rounded">
+                                    <div class="score-value" id="communicationScore">-</div>
+                                    <div class="score-label">Communication</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="score-card text-center p-3 bg-light rounded">
+                                    <div class="score-value" id="technicalScore">-</div>
+                                    <div class="score-label">Technical</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="score-card text-center p-3 bg-light rounded">
+                                    <div class="score-value" id="confidenceScore">-</div>
+                                    <div class="score-label">Confidence</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="score-card text-center p-3 bg-light rounded">
+                                    <div class="score-value" id="relevanceScore">-</div>
+                                    <div class="score-label">Relevance</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="speechFeedback" class="mt-3"></div>
+                        <div class="mt-3">
+                            <button class="btn btn-success btn-lg w-100" onclick="nextQuestion()" id="nextBtn">
+                                <i class="fas fa-arrow-right me-2"></i>Next Question
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interview Complete -->
+            <div id="completeSection" class="d-none">
+                <div class="card shadow-sm border-success">
+                    <div class="card-body text-center p-5">
+                        <i class="fas fa-check-circle fa-4x text-success mb-3"></i>
+                        <h3 class="fw-bold">Interview Complete!</h3>
+                        <p class="text-muted">Great job! Let's see your results.</p>
+                        <a href="/results" class="btn btn-primary btn-lg">
+                            <i class="fas fa-chart-bar me-2"></i>View Results
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let interviewState = {
+    sessionId: null,
+    currentQuestion: 0,
+    totalQuestions: 0,
+    questions: [],
+    isRecording: false,
+    mediaRecorder: null,
+    audioChunks: [],
+    recordingTimer: null,
+    seconds: 0
+};
+
+// Initialize interview on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const profile = sessionStorage.getItem('resumeProfile');
+    if (!profile) {
+        window.location.href = '/';
+        return;
+    }
+    
+    // Start the interview
+    fetch('/api/start-interview', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            job_role: sessionStorage.getItem('jobRole') || '',
+            num_questions: 10
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            interviewState.sessionId = data.session_id;
+            interviewState.questions = data.questions;
+            interviewState.totalQuestions = data.questions.length;
+            document.getElementById('totalQuestions').textContent = data.questions.length;
+            loadQuestion(0);
+        } else {
+            alert('Error: ' + data.error);
+            window.location.href = '/';
+        }
+    })
+    .catch(error => {
+        alert('Failed to start interview: ' + error.message);
+        window.location.href = '/';
+    });
+    
+    // Text area word count
+    document.getElementById('answerText').addEventListener('input', updateWordCount);
+});
+
+function loadQuestion(index) {
+    const question = interviewState.questions[index];
+    if (!question) return;
+    
+    document.getElementById('questionText').textContent = question.question;
+    document.getElementById('questionType').textContent = question.type.replace('_', ' ').toUpperCase();
+    document.getElementById('questionDifficulty').textContent = question.difficulty.toUpperCase();
+    document.getElementById('questionHint').querySelector('span').textContent = question.hint || 'Think carefully and provide specific examples.';
+    document.getElementById('currentQuestionNum').textContent = index + 1;
+    document.getElementById('interviewProgress').style.width = ((index) / interviewState.totalQuestions * 100) + '%';
+    
+    // Reset UI
+    document.getElementById('feedbackSection').classList.add('d-none');
+    document.getElementById('completeSection').classList.add('d-none');
+    document.getElementById('answerText').value = '';
+    document.getElementById('answerText').disabled = false;
+    document.getElementById('submitBtn').disabled = false;
+    updateWordCount();
+    
+    interviewState.currentQuestion = index;
+}
+
+function updateWordCount() {
+    const text = document.getElementById('answerText').value;
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    document.getElementById('wordCount').textContent = words;
+}
+
+function switchMode(mode) {
+    document.getElementById('textModeBtn').classList.toggle('active', mode === 'text');
+    document.getElementById('voiceModeBtn').classList.toggle('active', mode === 'voice');
+    document.getElementById('textInputSection').classList.toggle('d-none', mode !== 'text');
+    document.getElementById('voiceInputSection').classList.toggle('d-none', mode !== 'voice');
+}
+
+function submitTextAnswer() {
+    const answer = document.getElementById('answerText').value.trim();
+    if (answer.split(/\s+/).length < 10) {
+        alert('Please provide a more detailed answer (minimum 10 words).');
+        return;
+    }
+    
+    submitAnswer(answer);
+}
+
+function submitAnswer(answer) {
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Analyzing...';
+    
+    fetch('/api/submit-answer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            answer: answer
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showFeedback(data);
+            if (data.is_complete) {
+                setTimeout(() => {
+                    document.getElementById('completeSection').classList.remove('d-none');
+                }, 2000);
+            }
+        } else {
+            alert('Error: ' + data.error);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Submit Answer';
+        }
+    })
+    .catch(error => {
+        alert('Error submitting answer: ' + error.message);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Submit Answer';
+    });
+}
+
+function showFeedback(data) {
+    const scores = data.scores;
+    document.getElementById('communicationScore').textContent = scores.communication.score.toFixed(1);
+    document.getElementById('technicalScore').textContent = scores.technical_accuracy.score.toFixed(1);
+    document.getElementById('confidenceScore').textContent = scores.confidence.score.toFixed(1);
+    document.getElementById('relevanceScore').textContent = scores.relevance.score.toFixed(1);
+    
+    // Color the scores
+    document.querySelectorAll('.score-value').forEach(el => {
+        const val = parseFloat(el.textContent);
+        if (val >= 7) el.style.color = '#28a745';
+        else if (val >= 5) el.style.color = '#ffc107';
+        else el.style.color = '#dc3545';
+    });
+    
+    // Speech feedback
+    const speechFeedback = document.getElementById('speechFeedback');
+    speechFeedback.innerHTML = '';
+    if (data.speech_analysis && data.speech_analysis.suggestions) {
+        data.speech_analysis.suggestions.forEach(suggestion => {
+            speechFeedback.innerHTML += `<div class="alert alert-info py-2 mb-1">
+                <i class="fas fa-info-circle me-2"></i>${suggestion}
+            </div>`;
+        });
+    }
+    
+    document.getElementById('feedbackSection').classList.remove('d-none');
+    
+    if (data.is_complete) {
+        document.getElementById('nextBtn').innerHTML = '<i class="fas fa-chart-bar me-2"></i>View Results';
+        document.getElementById('nextBtn').onclick = () => window.location.href = '/results';
+    } else {
+        document.getElementById('nextBtn').innerHTML = '<i class="fas fa-arrow-right me-2"></i>Next Question';
+        document.getElementById('nextBtn').onclick = nextQuestion;
+    }
+}
+
+function nextQuestion() {
+    document.getElementById('feedbackSection').classList.add('d-none');
+    document.getElementById('answerText').disabled = false;
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').innerHTML = '<i class="fas fa-paper-plane me-1"></i> Submit Answer';
+    
+    loadQuestion(interviewState.currentQuestion + 1);
+}
+
+// Voice Recording
+function toggleRecording() {
+    const recordBtn = document.getElementById('recordBtn');
+    const voiceStatus = document.getElementById('voiceStatus');
+    const timer = document.getElementById('recordingTimer');
+    
+    if (!interviewState.isRecording) {
+        // Start recording
+        startRecording();
+        recordBtn.classList.add('recording');
+        recordBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        voiceStatus.innerHTML = '<i class="fas fa-circle text-danger fa-3x blink"></i><p class="mt-2">Recording...</p>';
+        timer.classList.remove('d-none');
+        interviewState.seconds = 0;
+        interviewState.recordingTimer = setInterval(() => {
+            interviewState.seconds++;
+            const mins = Math.floor(interviewState.seconds / 60);
+            const secs = interviewState.seconds % 60;
+            document.getElementById('timerDisplay').textContent = 
+                `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }, 1000);
+    } else {
+        // Stop recording
+        stopRecording();
+        recordBtn.classList.remove('recording');
+        recordBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+        voiceStatus.innerHTML = '<i class="fas fa-microphone fa-3x text-muted"></i><p class="mt-2">Click to start recording</p>';
+        clearInterval(interviewState.recordingTimer);
+        timer.classList.add('d-none');
+    }
+    
+    interviewState.isRecording = !interviewState.isRecording;
+}
+
+function startRecording() {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+            interviewState.mediaRecorder = new MediaRecorder(stream);
+            interviewState.audioChunks = [];
+            
+            interviewState.mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    interviewState.audioChunks.push(event.data);
+                }
+            };
+            
+            interviewState.mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(interviewState.audioChunks, { type: 'audio/wav' });
+                processVoiceInput(audioBlob);
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            interviewState.mediaRecorder.start();
+        })
+        .catch(error => {
+            alert('Microphone access denied. Please enable microphone permissions.');
+        });
+}
+
+function stopRecording() {
+    if (interviewState.mediaRecorder && interviewState.mediaRecorder.state === 'recording') {
+        interviewState.mediaRecorder.stop();
+    }
+}
+
+function processVoiceInput(audioBlob) {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.wav');
+    
+    document.getElementById('voiceStatus').innerHTML = 
+        '<i class="fas fa-spinner fa-spin fa-3x text-primary"></i><p class="mt-2">Transcribing...</p>';
+    
+    fetch('/api/upload-audio', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.transcription.text) {
+            document.getElementById('voiceTranscript').classList.remove('d-none');
+            document.getElementById('transcriptText').textContent = data.transcription.text;
+            document.getElementById('voiceStatus').innerHTML = 
+                '<i class="fas fa-check-circle text-success fa-3x"></i><p class="mt-2">Transcription complete</p>';
+            
+            // Store for submission
+            interviewState.voiceTranscript = data.transcription.text;
+        } else {
+            document.getElementById('voiceStatus').innerHTML = 
+                '<i class="fas fa-exclamation-triangle text-warning fa-3x"></i><p class="mt-2">Could not transcribe. Try again or use text mode.</p>';
+        }
+    })
+    .catch(error => {
+        document.getElementById('voiceStatus').innerHTML = 
+            '<i class="fas fa-exclamation-circle text-danger fa-3x"></i><p class="mt-2">Error processing audio</p>';
+    });
+}
+
+function submitVoiceAnswer() {
+    if (interviewState.voiceTranscript) {
+        document.getElementById('answerText').value = interviewState.voiceTranscript;
+        submitTextAnswer();
+    }
+}
+</script>
+{% endblock %}
