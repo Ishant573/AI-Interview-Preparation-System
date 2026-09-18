@@ -337,18 +337,19 @@ function nextQuestion() {
     loadQuestion(interviewState.currentQuestion + 1);
 }
 
-// Voice Recording
+// Voice Recording with Web Speech API & MediaRecorder Fallback
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
 function toggleRecording() {
     const recordBtn = document.getElementById('recordBtn');
     const voiceStatus = document.getElementById('voiceStatus');
     const timer = document.getElementById('recordingTimer');
     
     if (!interviewState.isRecording) {
-        // Start recording
         startRecording();
         recordBtn.classList.add('recording');
         recordBtn.innerHTML = '<i class="fas fa-stop"></i>';
-        voiceStatus.innerHTML = '<i class="fas fa-circle text-danger fa-3x blink"></i><p class="mt-2">Recording...</p>';
+        voiceStatus.innerHTML = '<i class="fas fa-circle text-danger fa-3x blink"></i><p class="mt-2">Listening... Speak now</p>';
         timer.classList.remove('d-none');
         interviewState.seconds = 0;
         interviewState.recordingTimer = setInterval(() => {
@@ -358,46 +359,103 @@ function toggleRecording() {
             document.getElementById('timerDisplay').textContent = 
                 `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         }, 1000);
+        interviewState.isRecording = true;
     } else {
-        // Stop recording
         stopRecording();
         recordBtn.classList.remove('recording');
         recordBtn.innerHTML = '<i class="fas fa-microphone"></i>';
         voiceStatus.innerHTML = '<i class="fas fa-microphone fa-3x text-muted"></i><p class="mt-2">Click to start recording</p>';
         clearInterval(interviewState.recordingTimer);
         timer.classList.add('d-none');
+        interviewState.isRecording = false;
     }
-    
-    interviewState.isRecording = !interviewState.isRecording;
 }
 
 function startRecording() {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            interviewState.mediaRecorder = new MediaRecorder(stream);
-            interviewState.audioChunks = [];
+    interviewState.voiceTranscript = '';
+    
+    // Prefer native browser Speech Recognition (Fast, accurate, works on Vercel)
+    if (SpeechRecognitionAPI) {
+        try {
+            const recognition = new SpeechRecognitionAPI();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
             
-            interviewState.mediaRecorder.ondataavailable = event => {
-                if (event.data.size > 0) {
-                    interviewState.audioChunks.push(event.data);
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                for (let i = 0; i < event.results.length; ++i) {
+                    finalTranscript += event.results[i][0].transcript;
+                }
+                interviewState.voiceTranscript = finalTranscript;
+                document.getElementById('voiceTranscript').classList.remove('d-none');
+                document.getElementById('transcriptText').textContent = finalTranscript;
+                document.getElementById('answerText').value = finalTranscript;
+                updateWordCount();
+            };
+            
+            recognition.onerror = (event) => {
+                console.warn('SpeechRecognition error:', event.error);
+                if (event.error === 'not-allowed') {
+                    alert('Microphone access denied. Please enable microphone permissions.');
                 }
             };
             
-            interviewState.mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(interviewState.audioChunks, { type: 'audio/wav' });
-                processVoiceInput(audioBlob);
-                // Stop all tracks
-                stream.getTracks().forEach(track => track.stop());
+            recognition.onend = () => {
+                if (interviewState.isRecording) {
+                    try { recognition.start(); } catch(e) {}
+                }
             };
             
-            interviewState.mediaRecorder.start();
-        })
-        .catch(error => {
-            alert('Microphone access denied. Please enable microphone permissions.');
-        });
+            recognition.start();
+            interviewState.recognition = recognition;
+            return;
+        } catch (e) {
+            console.warn('Fallback to MediaRecorder:', e);
+        }
+    }
+    
+    // Fallback: MediaRecorder audio stream
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                interviewState.mediaRecorder = new MediaRecorder(stream);
+                interviewState.audioChunks = [];
+                
+                interviewState.mediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) {
+                        interviewState.audioChunks.push(event.data);
+                    }
+                };
+                
+                interviewState.mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(interviewState.audioChunks, { type: 'audio/wav' });
+                    processVoiceInput(audioBlob);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                interviewState.mediaRecorder.start();
+            })
+            .catch(error => {
+                alert('Microphone access denied. Please enable microphone permissions.');
+            });
+    } else {
+        alert('Voice input is not supported in this browser. Please use text mode.');
+    }
 }
 
 function stopRecording() {
+    if (interviewState.recognition) {
+        try {
+            interviewState.recognition.stop();
+        } catch (e) {}
+        interviewState.recognition = null;
+        if (interviewState.voiceTranscript) {
+            document.getElementById('voiceStatus').innerHTML = 
+                '<i class="fas fa-check-circle text-success fa-3x"></i><p class="mt-2">Transcription ready! Review or submit below.</p>';
+        }
+    }
+    
     if (interviewState.mediaRecorder && interviewState.mediaRecorder.state === 'recording') {
         interviewState.mediaRecorder.stop();
     }
@@ -416,28 +474,29 @@ function processVoiceInput(audioBlob) {
     })
     .then(response => response.json())
     .then(data => {
-        if (data.success && data.transcription.text) {
+        if (data.success && data.transcription && data.transcription.text) {
             document.getElementById('voiceTranscript').classList.remove('d-none');
             document.getElementById('transcriptText').textContent = data.transcription.text;
+            document.getElementById('answerText').value = data.transcription.text;
+            updateWordCount();
             document.getElementById('voiceStatus').innerHTML = 
                 '<i class="fas fa-check-circle text-success fa-3x"></i><p class="mt-2">Transcription complete</p>';
-            
-            // Store for submission
             interviewState.voiceTranscript = data.transcription.text;
         } else {
             document.getElementById('voiceStatus').innerHTML = 
-                '<i class="fas fa-exclamation-triangle text-warning fa-3x"></i><p class="mt-2">Could not transcribe. Try again or use text mode.</p>';
+                '<i class="fas fa-exclamation-triangle text-warning fa-3x"></i><p class="mt-2">Could not transcribe audio. You can type your answer in Text mode.</p>';
         }
     })
     .catch(error => {
         document.getElementById('voiceStatus').innerHTML = 
-            '<i class="fas fa-exclamation-circle text-danger fa-3x"></i><p class="mt-2">Error processing audio</p>';
+            '<i class="fas fa-exclamation-circle text-danger fa-3x"></i><p class="mt-2">Error uploading audio. You can use Text mode.</p>';
     });
 }
 
 function submitVoiceAnswer() {
-    if (interviewState.voiceTranscript) {
-        document.getElementById('answerText').value = interviewState.voiceTranscript;
+    const text = document.getElementById('transcriptText').textContent || interviewState.voiceTranscript;
+    if (text) {
+        document.getElementById('answerText').value = text;
         submitTextAnswer();
     }
 }

@@ -12,7 +12,10 @@ from config import Config
 class DataManager:
     def __init__(self, db_path: str = None):
         self.db_path = db_path or Config.DATABASE_PATH
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        except OSError:
+            pass
         self._init_database()
     
     def _init_database(self):
@@ -56,11 +59,25 @@ class DataManager:
                 overall_score REAL,
                 grade TEXT,
                 status TEXT DEFAULT 'in_progress',
+                questions_data TEXT,
+                current_question INTEGER DEFAULT 0,
+                final_results_data TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 completed_at TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
+        
+        # Migration for existing tables: ensure columns exist
+        for col_def in [
+            ("questions_data", "TEXT"),
+            ("current_question", "INTEGER DEFAULT 0"),
+            ("final_results_data", "TEXT")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE interview_sessions ADD COLUMN {col_def[0]} {col_def[1]}")
+            except sqlite3.OperationalError:
+                pass
         
         # Interview answers table
         cursor.execute('''
@@ -178,21 +195,42 @@ class DataManager:
     
     # Interview session operations
     def create_session(self, user_id: int, job_role: str = "", 
-                      total_questions: int = 10) -> int:
+                      total_questions: int = 10, questions: Optional[List[Dict]] = None) -> int:
         """Create a new interview session"""
         conn = self._get_connection()
         cursor = conn.cursor()
+        questions_json = json.dumps(questions) if questions else None
         cursor.execute(
             '''INSERT INTO interview_sessions 
-               (user_id, job_role, total_questions, status) 
-               VALUES (?, ?, ?, 'in_progress')''',
-            (user_id, job_role, total_questions)
+               (user_id, job_role, total_questions, status, questions_data, current_question) 
+               VALUES (?, ?, ?, 'in_progress', ?, 0)''',
+            (user_id, job_role, total_questions, questions_json)
         )
         conn.commit()
         session_id = cursor.lastrowid
         conn.close()
         return session_id
     
+    def update_session_progress(self, session_id: int, current_question: int,
+                                final_results: Optional[Dict] = None):
+        """Update session current question and final results"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        if final_results is not None:
+            cursor.execute(
+                '''UPDATE interview_sessions SET 
+                   current_question = ?, final_results_data = ? 
+                   WHERE id = ?''',
+                (current_question, json.dumps(final_results), session_id)
+            )
+        else:
+            cursor.execute(
+                'UPDATE interview_sessions SET current_question = ? WHERE id = ?',
+                (current_question, session_id)
+            )
+        conn.commit()
+        conn.close()
+
     def update_session_score(self, session_id: int, score: float, grade: str):
         """Update session with final score"""
         conn = self._get_connection()
@@ -214,7 +252,20 @@ class DataManager:
         cursor.execute('SELECT * FROM interview_sessions WHERE id = ?', (session_id,))
         session = cursor.fetchone()
         conn.close()
-        return dict(session) if session else None
+        if not session:
+            return None
+        session_dict = dict(session)
+        if session_dict.get('questions_data'):
+            try:
+                session_dict['questions'] = json.loads(session_dict['questions_data'])
+            except Exception:
+                session_dict['questions'] = []
+        if session_dict.get('final_results_data'):
+            try:
+                session_dict['final_results'] = json.loads(session_dict['final_results_data'])
+            except Exception:
+                session_dict['final_results'] = None
+        return session_dict
     
     def get_user_sessions(self, user_id: int) -> List[Dict]:
         """Get all sessions for a user"""

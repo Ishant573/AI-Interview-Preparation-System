@@ -3,9 +3,19 @@ Resume Analyzer - Parses and analyzes uploaded resumes
 Extracts skills, experience, education, and generates a structured profile
 """
 import re
-import PyPDF2
-import pdfplumber
+import zipfile
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional
+
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
+
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
 
 # Common skill categories for keyword matching
 SKILL_DATABASE = {
@@ -27,31 +37,53 @@ class ResumeAnalyzer:
         text = ""
         
         # Method 1: Using pdfplumber (better for structured text)
-        try:
-            with pdfplumber.open(pdf_path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-        except Exception as e:
-            print(f"pdfplumber extraction failed: {e}")
+        if pdfplumber is not None:
+            try:
+                with pdfplumber.open(pdf_path) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
+            except Exception as e:
+                print(f"pdfplumber extraction failed: {e}")
         
         # Method 2: Fallback to PyPDF2
-        if not text.strip():
+        if not text.strip() and PyPDF2 is not None:
             try:
                 with open(pdf_path, 'rb') as file:
                     reader = PyPDF2.PdfReader(file)
                     for page in reader.pages:
-                        text += page.extract_text() + "\n"
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
             except Exception as e:
                 print(f"PyPDF2 extraction failed: {e}")
         
         self.resume_text = text
         return text
     
+    def extract_text_from_docx(self, docx_path: str) -> str:
+        """Extract text from docx file using standard library zipfile and XML parsing"""
+        try:
+            with zipfile.ZipFile(docx_path) as z:
+                xml_content = z.read('word/document.xml')
+            tree = ET.fromstring(xml_content)
+            namespaces = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+            paragraphs = []
+            for p in tree.iterfind('.//w:p', namespaces):
+                texts = [node.text for node in p.iterfind('.//w:t', namespaces) if node.text]
+                if texts:
+                    paragraphs.append(''.join(texts))
+            self.resume_text = '\n'.join(paragraphs)
+            return self.resume_text
+        except Exception as e:
+            print(f"DOCX extraction failed: {e}")
+            self.resume_text = ""
+            return ""
+
     def extract_text_from_txt(self, txt_path: str) -> str:
         """Extract text from plain text file"""
-        with open(txt_path, 'r', encoding='utf-8') as file:
+        with open(txt_path, 'r', encoding='utf-8', errors='ignore') as file:
             self.resume_text = file.read()
         return self.resume_text
     
@@ -198,9 +230,12 @@ def analyze_resume(file_path: str) -> Dict:
     """Main function to analyze a resume file"""
     analyzer = ResumeAnalyzer()
     
-    if file_path.endswith('.pdf'):
+    path_lower = file_path.lower()
+    if path_lower.endswith('.pdf'):
         analyzer.extract_text_from_pdf(file_path)
-    elif file_path.endswith('.txt'):
+    elif path_lower.endswith('.docx'):
+        analyzer.extract_text_from_docx(file_path)
+    elif path_lower.endswith('.txt'):
         analyzer.extract_text_from_txt(file_path)
     else:
         raise ValueError(f"Unsupported file format: {file_path}")

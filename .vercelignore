@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.DS_Store
+venv
+__pycache__
+*.pyc
+*/__pycache__
+uploads/*
+!uploads/.gitkeep
+data/*.db
+data/*.db-journal
+tests

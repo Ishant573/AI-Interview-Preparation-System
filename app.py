@@ -7,6 +7,7 @@ import json
 import uuid
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from config import Config
 from utils.resume_analyzer import analyze_resume
@@ -18,15 +19,72 @@ from utils.data_manager import DataManager
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = Config.SECRET_KEY
+CORS(app)
 
-# Ensure upload directory exists
-os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+# Ensure upload directory exists safely
+try:
+    os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+except OSError:
+    pass
 
 # Initialize data manager
 db = DataManager()
 
-# Store active interview sessions in memory
+# Store active interview sessions in memory (with DB/cookie fallback for serverless)
 active_sessions = {}
+
+def get_active_session_data(session_id):
+    """Retrieve active session from memory, DB, or Flask session cookie"""
+    if not session_id:
+        return None
+        
+    if session_id in active_sessions:
+        return active_sessions[session_id]
+    
+    # Try restoring from database
+    try:
+        db_session = db.get_session(session_id)
+        if db_session and db_session.get('questions'):
+            db_answers = db.get_session_answers(session_id)
+            active_sessions[session_id] = {
+                'questions': db_session.get('questions', []),
+                'current_question': db_session.get('current_question', 0),
+                'answers': [{'question': {'question': a.get('question_text', ''), 'id': a.get('question_id', 0)},
+                             'answer': {'text': a.get('answer_text', '')}} for a in (db_answers or [])],
+                'job_role': db_session.get('job_role', ''),
+                'final_results': db_session.get('final_results')
+            }
+            return active_sessions[session_id]
+    except Exception as e:
+        print(f"Error retrieving session from DB: {e}")
+    
+    # Try restoring from Flask cookie session
+    cookie_data = session.get('active_session_data')
+    if cookie_data and cookie_data.get('session_id') == session_id:
+        active_sessions[session_id] = cookie_data
+        return active_sessions[session_id]
+        
+    return None
+
+def persist_active_session(session_id, data):
+    """Persist active session state across memory, DB, and cookie session"""
+    active_sessions[session_id] = data
+    session['active_session_data'] = {
+        'session_id': session_id,
+        'questions': data.get('questions', []),
+        'current_question': data.get('current_question', 0),
+        'job_role': data.get('job_role', ''),
+        'final_results': data.get('final_results')
+    }
+    session.modified = True
+    try:
+        db.update_session_progress(
+            session_id,
+            data.get('current_question', 0),
+            data.get('final_results')
+        )
+    except Exception as e:
+        print(f"Error persisting session progress: {e}")
 
 def allowed_file(filename: str) -> bool:
     """Check if uploaded file has allowed extension"""
@@ -85,6 +143,11 @@ def upload_resume():
         return jsonify({'error': 'File type not allowed. Please upload PDF, DOCX, or TXT'}), 400
     
     try:
+        try:
+            os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+        except OSError:
+            pass
+            
         # Save file
         filename = secure_filename(file.filename)
         filepath = os.path.join(Config.UPLOAD_FOLDER, f"{uuid.uuid4()}_{filename}")
@@ -93,6 +156,13 @@ def upload_resume():
         # Analyze resume
         profile = analyze_resume(filepath)
         
+        # Clean up uploaded file to save disk space on serverless
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception:
+            pass
+        
         # Create user session
         if 'user_id' not in session:
             user_id = db.create_user(f"User_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
@@ -100,8 +170,9 @@ def upload_resume():
         else:
             user_id = session['user_id']
         
-        # Save profile to database
+        # Save profile to database and cookie session
         db.save_resume_profile(user_id, filename, profile)
+        session['latest_profile'] = profile
         
         return jsonify({
             'success': True,
@@ -116,41 +187,50 @@ def upload_resume():
 @app.route('/api/start-interview', methods=['POST'])
 def start_interview():
     """Start a new interview session"""
-    data = request.json
+    data = request.json or {}
     job_role = data.get('job_role', '')
     num_questions = data.get('num_questions', Config.MAX_QUESTIONS_PER_SESSION)
     user_id = session.get('user_id')
     
     if not user_id:
-        return jsonify({'error': 'Please upload your resume first'}), 400
+        user_id = db.create_user(f"User_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        session['user_id'] = user_id
     
-    # Get latest resume profile
-    profile = db.get_latest_profile(user_id)
+    # Get latest resume profile from DB, cookie session, or request payload
+    profile = db.get_latest_profile(user_id) or session.get('latest_profile') or data.get('profile')
     if not profile:
-        return jsonify({'error': 'No resume profile found. Please upload your resume.'}), 400
+        # Default fallback profile if no resume uploaded yet
+        profile = {
+            'skills': ['Python', 'Problem Solving', 'Communication'],
+            'experience_years': 1,
+            'education': [],
+            'suggested_titles': [job_role or 'Software Engineer']
+        }
     
     # Build profile dict for question generator
     profile_data = {
         'skills': profile.get('skills', []),
         'experience_years': profile.get('experience_years', 0),
         'education': profile.get('education', []),
-        'key_achievements': [],
+        'key_achievements': profile.get('key_achievements', []),
         'suggested_titles': profile.get('suggested_titles', [])
     }
     
     # Generate questions
     questions = generate_interview_questions(profile_data, job_role, num_questions)
     
-    # Create database session
-    session_id = db.create_session(user_id, job_role, len(questions))
+    # Create database session with questions saved
+    session_id = db.create_session(user_id, job_role, len(questions), questions=questions)
     
-    # Store in active sessions
-    active_sessions[session_id] = {
+    # Store in active sessions and persist
+    interview_data = {
         'questions': questions,
         'current_question': 0,
         'answers': [],
-        'job_role': job_role
+        'job_role': job_role,
+        'final_results': None
     }
+    persist_active_session(session_id, interview_data)
     
     # Store session_id in flask session
     session['current_session_id'] = session_id
@@ -168,13 +248,13 @@ def start_interview():
 def get_question():
     """Get current interview question"""
     session_id = session.get('current_session_id')
+    interview = get_active_session_data(session_id)
     
-    if not session_id or session_id not in active_sessions:
+    if not interview:
         return jsonify({'error': 'No active interview session'}), 400
     
-    interview = active_sessions[session_id]
-    current_idx = interview['current_question']
-    questions = interview['questions']
+    current_idx = interview.get('current_question', 0)
+    questions = interview.get('questions', [])
     
     if current_idx >= len(questions):
         return jsonify({'error': 'Interview completed'}), 400
@@ -186,7 +266,7 @@ def get_question():
         'question': question,
         'question_number': current_idx + 1,
         'total_questions': len(questions),
-        'progress': (current_idx / len(questions)) * 100
+        'progress': (current_idx / len(questions)) * 100 if questions else 100
     })
 
 
@@ -194,19 +274,19 @@ def get_question():
 def submit_answer():
     """Submit answer for current question"""
     session_id = session.get('current_session_id')
+    interview = get_active_session_data(session_id)
     
-    if not session_id or session_id not in active_sessions:
+    if not interview:
         return jsonify({'error': 'No active interview session'}), 400
     
-    interview = active_sessions[session_id]
-    current_idx = interview['current_question']
-    questions = interview['questions']
+    current_idx = interview.get('current_question', 0)
+    questions = interview.get('questions', [])
     
     if current_idx >= len(questions):
         return jsonify({'error': 'Interview already completed'}), 400
     
     question = questions[current_idx]
-    data = request.json
+    data = request.json or {}
     answer_text = data.get('answer', '')
     audio_data = data.get('audio', None)  # Base64 encoded audio (optional)
     
@@ -239,6 +319,8 @@ def submit_answer():
     db.save_answer(session_id, question, answer_data, scores)
     
     # Store in session
+    if 'answers' not in interview:
+        interview['answers'] = []
     interview['answers'].append({
         'question': question,
         'answer': answer_data,
@@ -276,6 +358,9 @@ def submit_answer():
         # Store final results
         interview['final_results'] = all_scores
     
+    # Persist updated state to memory, DB, and cookie session
+    persist_active_session(session_id, interview)
+    
     return jsonify({
         'success': True,
         'scores': scores,
@@ -289,26 +374,34 @@ def submit_answer():
 def get_results():
     """Get interview results"""
     session_id = session.get('current_session_id')
+    interview = get_active_session_data(session_id)
+    session_data = db.get_session(session_id) if session_id else None
+    answers = db.get_session_answers(session_id) if session_id else []
     
-    if not session_id or session_id not in active_sessions:
+    results = None
+    questions = []
+    if interview:
+        results = interview.get('final_results')
+        questions = interview.get('questions', [])
+    elif session_data:
+        results = session_data.get('final_results')
+        questions = session_data.get('questions', [])
+    
+    if not results and answers and questions:
+        results = calculate_performance_scores(
+            [{'text': a.get('answer_text', '')} for a in answers],
+            questions
+        )
+    
+    if not results and not session_data:
         return jsonify({'error': 'No interview results found'}), 400
-    
-    interview = active_sessions[session_id]
-    results = interview.get('final_results')
-    
-    if not results:
-        return jsonify({'error': 'Interview not completed yet'}), 400
-    
-    # Get session details from database
-    session_data = db.get_session(session_id)
-    answers = db.get_session_answers(session_id)
     
     return jsonify({
         'success': True,
         'results': results,
         'session': session_data,
         'answers': answers,
-        'questions': interview['questions']
+        'questions': questions
     })
 
 
@@ -367,6 +460,11 @@ def upload_audio():
         return jsonify({'error': 'No audio selected'}), 400
     
     try:
+        try:
+            os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+        except OSError:
+            pass
+            
         # Save audio file
         filename = f"audio_{uuid.uuid4()}.wav"
         filepath = os.path.join(Config.UPLOAD_FOLDER, filename)
@@ -374,6 +472,13 @@ def upload_audio():
         
         # Transcribe
         transcription = transcribe_audio(filepath)
+        
+        # Clean up temporary audio file
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception:
+            pass
         
         return jsonify({
             'success': True,
@@ -392,6 +497,7 @@ def reset_session():
         del active_sessions[session_id]
     
     session.pop('current_session_id', None)
+    session.pop('active_session_data', None)
     
     return jsonify({'success': True, 'message': 'Session reset'})
 

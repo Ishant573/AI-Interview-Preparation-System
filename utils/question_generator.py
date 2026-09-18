@@ -10,8 +10,16 @@ from config import Config
 class QuestionGenerator:
     def __init__(self, api_key: str = None):
         self.api_key = api_key or Config.OPENAI_API_KEY
-        openai.api_key = self.api_key
         self.model = Config.OPENAI_MODEL
+        self.client = None
+        
+        # Only initialize client if valid API key is set
+        if self.api_key and self.api_key not in ('YOUR_OPENAI_API_KEY_HERE', ''):
+            try:
+                self.client = openai.OpenAI(api_key=self.api_key)
+            except Exception as e:
+                print(f"Failed to initialize OpenAI client: {e}")
+                self.client = None
     
     def generate_questions(self, resume_profile: Dict, job_role: str = "", 
                           num_questions: int = 10) -> List[Dict]:
@@ -26,7 +34,6 @@ class QuestionGenerator:
         Returns:
             List of question objects with type, question, and expected skills
         """
-        # Create a prompt based on resume data
         skills = resume_profile.get('skills', [])
         experience = resume_profile.get('experience_years', 0)
         education = resume_profile.get('education', [])
@@ -34,6 +41,9 @@ class QuestionGenerator:
         suggested_titles = resume_profile.get('suggested_titles', [])
         
         target_role = job_role or (suggested_titles[0] if suggested_titles else 'Software Professional')
+        
+        if not self.client:
+            return self._generate_fallback_questions(skills, target_role, num_questions)
         
         prompt = f"""
         You are an experienced technical interviewer. Generate {num_questions} interview questions for a candidate applying for "{target_role}" position.
@@ -63,7 +73,7 @@ class QuestionGenerator:
         """
         
         try:
-            response = openai.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are an expert technical interviewer. Generate questions in JSON format only."},
@@ -135,6 +145,9 @@ class QuestionGenerator:
     
     def generate_follow_up_question(self, question: str, answer: str) -> str:
         """Generate a follow-up question based on the candidate's answer"""
+        if not self.client:
+            return "Could you elaborate more on that point with a specific example?"
+        
         prompt = f"""
         Based on the interview question: "{question}"
         And the candidate's response: "{answer}"
@@ -144,7 +157,7 @@ class QuestionGenerator:
         """
         
         try:
-            response = openai.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "Generate a brief, relevant follow-up interview question."},
@@ -163,4 +176,5 @@ def generate_interview_questions(resume_profile: Dict, job_role: str = "",
     """Convenience function to generate questions"""
     generator = QuestionGenerator()
     return generator.generate_questions(resume_profile, job_role, num_questions)
+
 
